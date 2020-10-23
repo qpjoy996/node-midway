@@ -1,0 +1,61 @@
+stages:
+  - build
+  - deploy
+
+.build: &build-definition
+  stage: build
+  image:
+    name: registry.cn-shanghai.aliyuncs.com/lilith-avatar/kaniko-executor:debug
+    entrypoint: [""]
+  before_script:
+    - echo "${KANIKO_CONFIG}" > /kaniko/.docker/config.json
+  script:
+    - cd $CI_PROJECT_DIR/deploy/build
+    - ns=registry.cn-shanghai.aliyuncs.com/lilith-avatar
+    - /kaniko/warmer -f --image=pqbap4ya.mirror.aliyuncs.com/library/node:13-alpine || true
+    - /kaniko/executor --context ../.. --destination $ns/midway:$REVISION --cache=true --cache-repo=$ns/midway-cache
+
+build:develop:
+  <<: *build-definition
+  only:
+    - develop
+    - develop-skip
+  variables:
+    REVISION: develop
+
+build:master:
+  <<: *build-definition
+  only:
+    - master
+    - master-skip
+  variables:
+    REVISION: master
+
+.deploy: &deploy-definition
+  stage: deploy
+  image: ksandermann/kubectl:v1.15.3
+  before_script:
+    - mkdir $HOME/.kube
+    - echo "${KUBE_CONFIG}" > $HOME/.kube/config
+  script:
+    - kubectl apply -k deploy/app/$env
+    - kubectl rollout restart deploy/midway -n site
+    - kubectl rollout status deploy/midway -n site
+
+deploy:dev:
+  <<: *deploy-definition
+  only:
+    - develop
+    - develop-skip
+  variables:
+    KUBE_CONFIG: ${KUBE_TEST_CONFIG}
+    env: dev
+
+deploy:prod:
+  <<: *deploy-definition
+  only:
+    - master
+    - master-skip
+  variables:
+    KUBE_CONFIG: ${KUBE_PROD_CONFIG}
+    env: prod
